@@ -12,7 +12,9 @@ Créer une structure Terragrunt complète avec 3 environnements (dev, staging, p
 ## Étapes de préparation
 
 1. Cloner le dépôt et lire le contenu du dossier fichier-base/configuration
-2. Configurer la connexion à AWS CLI :
+2. Valider votre compte AWS reçu par mail et définir un mot de passe
+3. Vous connecter avec ce compte et récupérer via le bouton Clé d'accès les informations de connexion 
+4. Configurer la connexion à AWS CLI :
    * Executer la commande : `aws configure`
    * Entrer les informations fournis par votre formatrice
 
