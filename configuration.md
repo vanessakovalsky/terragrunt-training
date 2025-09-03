@@ -30,3 +30,10 @@ terragrunt plan
 # Application (si bucket S3 configuré)
 terragrunt apply
 ```
+
+## Vérification
+
+* A l'aide de la console AWS ou de AWS cli, vérifier si le VPC est bien créé.
+* Vérifier si les tags ont bien été mis sur ce VPC
+
+##
