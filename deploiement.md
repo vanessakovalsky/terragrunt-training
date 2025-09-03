@@ -19,7 +19,7 @@ Internet
 #### Structure du projet
 ```
 formation-tp2/
-├── terragrunt.hcl                    # Configuration globale
+├── root.hcl                    # Configuration globale
 ├── _envcommon/                       # Configurations centralisées
 │   ├── networking.hcl               # VPC, subnets, routes
 │   ├── security.hcl                 # Security groups, NACLs
