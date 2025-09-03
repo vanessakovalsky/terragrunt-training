@@ -36,4 +36,8 @@ terragrunt apply
 * A l'aide de la console AWS ou de AWS cli, vérifier si le VPC est bien créé.
 * Vérifier si les tags ont bien été mis sur ce VPC
 
-##
+## A vous de jouer
+
+* Ajouter un deuxième module pour créer un bucket s3 sur AWS
+* Vous devez préparer le module avec ces fichiers terrafom
+* Et configurer l'appel du module a l'aide d'un fichier hcl pour l'environnement de developpement.
