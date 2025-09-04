@@ -32,7 +32,7 @@ remote_state {
     if_exists = "overwrite"
   }
   config = {
-    bucket         = "terraform-states-formation-terragrunt"
+    bucket         = "terraform-states-formation-terragrunt-vanessa"
     key            = "${path_relative_to_include()}/terraform.tfstate"
     region         = "eu-west-1"
     encrypt        = true
