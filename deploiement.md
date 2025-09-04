@@ -666,70 +666,10 @@ curl http://INSTANCE_IP
 
 ---
 
-## Phase 5 : Fonctionnalités avancées (5 minutes)
+## A vous de jouer
 
-### Étape 5.1 : Hooks et automatisation
+* Préparer les fichiers pour l'environnement de stagging et de prod et deployer les avec terragrunt
 
-Ajoutez des hooks dans `environments/dev/terragrunt.hcl` :
-
-```hcl
-terraform {
-  before_hook "before_hook" {
-    commands     = ["plan", "apply"]
-    execute      = ["echo", "Déploiement en cours pour ${local.env_vars.environment}..."]
-  }
-  
-  after_hook "after_hook" {
-    commands     = ["apply"]
-    execute      = ["echo", "Déploiement terminé pour ${local.env_vars.environment}!"]
-    run_on_error = false
-  }
-}
-```
-
-### Étape 5.2 : Configuration avec generate
-
-Ajoutez dans `terragrunt.hcl` racine :
-
-```hcl
-generate "variables" {
-  path      = "variables.tf"
-  if_exists = "overwrite"
-  contents  = <<EOF
-variable "aws_region" {
-  description = "AWS region"
-  type        = string
-  default     = "eu-west-1"
-}
-
-variable "project_name" {
-  description = "Project name"
-  type        = string
-}
-
-variable "environment" {
-  description = "Environment name"
-  type        = string
-}
-EOF
-}
-```
-
----
-
-## Exercices supplémentaires (bonus)
-
-### Exercice A : Gestion des secrets
-1. Intégrez AWS Systems Manager Parameter Store pour gérer les secrets
-2. Utilisez `sops` pour chiffrer les fichiers de configuration sensibles
-
-### Exercice B : Multi-région
-1. Adaptez la configuration pour déployer sur plusieurs régions AWS
-2. Gérez la réplication des données entre régions
-
-### Exercice C : Monitoring et logging
-1. Ajoutez un module CloudWatch pour le monitoring
-2. Configurez des alertes automatiques
 
 ---
 
@@ -762,3 +702,17 @@ aws dynamodb delete-table --table-name terragrunt-locks --region eu-west-1
 - [Documentation officielle Terragrunt](https://terragrunt.gruntwork.io/)
 - [Best practices Terraform](https://www.terraform.io/docs/cloud/guides/recommended-practices/index.html)
 - [Patterns de structuration](https://github.com/gruntwork-io/terragrunt-infrastructure-live-example)
+
+## Exercices supplémentaires (bonus)
+
+### Exercice A : Gestion des secrets
+1. Intégrez AWS Systems Manager Parameter Store pour gérer les secrets
+2. Utilisez `sops` pour chiffrer les fichiers de configuration sensibles
+
+### Exercice B : Multi-région
+1. Adaptez la configuration pour déployer sur plusieurs régions AWS
+2. Gérez la réplication des données entre régions
+
+### Exercice C : Monitoring et logging
+1. Ajoutez un module CloudWatch pour le monitoring
+2. Configurez des alertes automatiques
