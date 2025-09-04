@@ -8,9 +8,9 @@ remote_state {
   }
   
   config = {
-    bucket         = "votre-nom-terragrunt-state-${get_env("USER", "default")}"
+    bucket         = "terragrunt-state-${get_env("USER", "default")}"
     key            = "${path_relative_to_include()}/terraform.tfstate"
-    region         = "eu-west-1"
+    region         = "us-east-2"
     encrypt        = true
     dynamodb_table = "terragrunt-locks"
   }
@@ -31,7 +31,7 @@ terraform {
 }
 
 provider "aws" {
-  region = var.aws_region
+  region = "us-east-2"
 }
 EOF
 }

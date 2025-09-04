@@ -1,9 +1,9 @@
 include "root" {
-  path = find_in_parent_folders()
+  path = find_in_parent_folders("root.hcl")
 }
 
 terraform {
-  source = "../../../modules/security-group"
+  source = "${get_parent_terragrunt_dir()}/modules/security-group"
 }
 
 dependency "vpc" {

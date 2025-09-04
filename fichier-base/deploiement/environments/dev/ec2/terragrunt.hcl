@@ -1,9 +1,9 @@
 include "root" {
-  path = find_in_parent_folders()
+  path = find_in_parent_folders("root.hcl")
 }
 
 terraform {
-  source = "../../../modules/ec2"
+  source = "${get_parent_terragrunt_dir()}/modules/ec2"
 }
 
 dependency "vpc" {
