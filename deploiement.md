@@ -54,7 +54,7 @@ formation-tp2/
     └── prod/
 ```
 
-#### 1. Configuration globale (terragrunt.hcl)
+#### 1. Configuration globale (root.hcl)
 ```hcl
 locals {
   # Variables globales du projet
