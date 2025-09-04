@@ -1,0 +1,6 @@
+**/.terragrunt-cache
+**/.terraform
+*.tfstate
+*.tfstate.backup
+*.log
+.terraform.lock.hcl
