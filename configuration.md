@@ -16,7 +16,7 @@ Créer une structure Terragrunt complète avec 3 environnements (dev, staging, p
 3. Vous connecter avec ce compte et récupérer via le bouton Clé d'accès les informations de connexion 
 4. Configurer la connexion à AWS CLI :
    * Executer la commande : `aws configure`
-   * Entrer les informations fournis par votre compte AWS
+   * Entrer les informations fournis par votre formatrice
 
 
 ## Execution des commandes terragrunt
@@ -39,11 +39,5 @@ terragrunt apply
 ## A vous de jouer
 
 * Ajouter un deuxième module pour créer un bucket s3 sur AWS
-* Vous devez préparer le module avec ces fichiers terrafom, pensez bien à tagguer les ressources avec les mêmes tags que le VPC
+* Vous devez préparer le module avec ces fichiers terrafom
 * Et configurer l'appel du module a l'aide d'un fichier hcl pour l'environnement de developpement.
-
-
-## Nettoyage
-
-* Dans chaque environnement, puis chaque sous dossier (vpc, s3), executez la commande `terragrunt s3`
-* Cela doit être systematiquement fait à la fin de chaque exercice
