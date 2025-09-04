@@ -1,21 +1,41 @@
-remote_state {
-  backend = "s3"
-
-  config = {
-    bucket         = "my-terraform-states"
-    key            = "${path_relative_to_include()}/terraform.tfstate"
-    region         = "eu-west-3"
-    encrypt        = true
-    dynamodb_table = "terraform-locks"
+locals {
+  common_tags = {
+    Project   = "formation-terragrunt"
+    ManagedBy = "terragrunt"
   }
 }
 
+generate "provider" {
+  path      = "provider.tf"
+  if_exists = "overwrite_terragrunt"
+  contents  = <<EOF
 terraform {
-  extra_arguments "common_vars" {
-    commands = get_terraform_commands_that_need_vars()
+  required_version = ">= 1.0"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
 
-    arguments = [
-      "-var-file=${get_parent_terragrunt_dir()}/common.tfvars"
-    ]
+provider "aws" {
+  region = var.aws_region
+}
+EOF
+}
+
+remote_state {
+  backend = "s3"
+  generate = {
+    path      = "backend.tf"
+    if_exists = "overwrite"
+  }
+  config = {
+    bucket         = "terraform-states-formation-terragrunt"
+    key            = "${path_relative_to_include()}/terraform.tfstate"
+    region         = "eu-west-1"
+    encrypt        = true
+    dynamodb_table = "terraform-locks"
   }
 }

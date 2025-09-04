@@ -1,14 +1,15 @@
-variable "region" {
+variable "vpc_name" {
+  description = "Name of the VPC"
   type        = string
-  description = "AWS region"
 }
 
 variable "vpc_cidr" {
+  description = "CIDR block for VPC"
   type        = string
-  description = "CIDR block for the VPC"
 }
 
-variable "env" {
-  type        = string
-  description = "Environment name (prod/dev/staging)"
+variable "tags" {
+  description = "A map of tags to assign to the resource"
+  type        = map(string)
+  default     = {}
 }
