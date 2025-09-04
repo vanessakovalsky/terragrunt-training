@@ -4,11 +4,10 @@
 Créer un pipeline CI/CD complet et sécurisé pour automatiser les déploiements Terragrunt avec validation, planification, déploiement conditionnel et sauvegarde des logs.
 
 ## 📋 Prérequis
-- Repository Git (GitHub/GitLab/Azure DevOps)
+- Repository Git (GitHub/GitLab)
 - AWS CLI et credentials configurés
 - Terragrunt/Terraform installés
-- Docker (pour les runners)
-- Accès à un service CI/CD (GitHub Actions, GitLab CI, Azure DevOps)
+- Accès à un service CI/CD (GitHub Actions, GitLab CI)
 
 ## 🏗️ Architecture du Pipeline
 ```
@@ -20,13 +19,6 @@ Créer un pipeline CI/CD complet et sécurisé pour automatiser les déploiement
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
-## ⏱️ Planning (60 minutes)
-- **Phase 1** (15min) : Structure projet et validation
-- **Phase 2** (20min) : Configuration du pipeline CI/CD
-- **Phase 3** (15min) : Sécurisation et gestion des secrets
-- **Phase 4** (10min) : Tests, logs et monitoring
-
----
 
 ## Phase 1 : Structure Projet et Validation (15 minutes)
 
@@ -39,7 +31,6 @@ secure-terragrunt-pipeline/
 │       ├── plan.yml
 │       └── deploy.yml
 ├── .gitlab-ci.yml
-├── azure-pipelines.yml
 ├── scripts/
 │   ├── validate.sh
 │   ├── plan-all.sh
@@ -2170,7 +2161,7 @@ output "sns_topic_arn" {
 - [ ] Notifications en cas de succès/échec
 - [ ] Rollback automatique en cas d'erreur (prod)
 
-## 🚀 Extensions Avancées
+## 🚀 Pour aller plus loin vous pouvez ajouter les éléments suivants :
 
 ### 🔒 Sécurité Avancée
 - Intégration avec HashiCorp Vault pour les secrets
@@ -2197,5 +2188,3 @@ output "sns_topic_arn" {
 3. **Observabilité** : Logs centralisés et monitoring
 4. **Automatisation** : Déploiements conditionnels et notifications
 5. **Gouvernance** : Politiques de sécurité et conformité
-
-Cet exercice de 60 minutes couvre tous les aspects d'un pipeline CI/CD sécurisé pour Terragrunt, de la validation à la surveillance, en passant par la sécurisation des déploiements !
