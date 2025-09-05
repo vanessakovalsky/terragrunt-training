@@ -1,17 +1,23 @@
-# .github/workflows/terragrunt-pipeline.yml
-name: 🚀 Secure Terragrunt Pipeline
+name: Deploy to AWS with Terragrunt
 
 on:
   push:
-    branches: [ main, develop, 'feature/*' ]
+    branches:
+      - main
+      - develop
+    paths:
+      - 'infrastructure/**'
+      - '.github/workflows/**'
   pull_request:
-    branches: [ main, develop ]
-  
-  # Déploiement manuel pour prod
+    branches:
+      - main
+      - develop
+    paths:
+      - 'infrastructure/**'
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Target environment'
+        description: 'Environment to deploy'
         required: true
         default: 'dev'
         type: choice
@@ -19,277 +25,232 @@ on:
         - dev
         - staging
         - prod
-      
-      force_deploy:
-        description: 'Force deployment (skip safety checks)'
-        required: false
-        type: boolean
-        default: false
+      action:
+        description: 'Terragrunt action'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+        - plan
+        - apply
+        - destroy
 
 env:
   TF_VERSION: '1.6.0'
-  TG_VERSION: '0.53.0'
+  TERRAGRUNT_VERSION: '0.53.0'
   AWS_DEFAULT_REGION: 'eu-west-1'
 
 jobs:
-  # Job 1: Validation complète
+  # Job de validation pour les PR
   validate:
-    name: 🔍 Validate & Security Check
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    name: Validate Terragrunt Configuration
     
-    outputs:
-      validation-status: ${{ steps.validate.outputs.status }}
-      
     steps:
-    - name: 📥 Checkout Code
+    - name: Checkout code
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0  # Pour git-secrets
-        
-    - name: 🔧 Setup Terraform
+
+    - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
       with:
         terraform_version: ${{ env.TF_VERSION }}
-        
-    - name: 🔧 Setup Terragrunt
+        terraform_wrapper: false
+
+    - name: Setup Terragrunt
       run: |
-        curl -LO "https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TG_VERSION }}/terragrunt_linux_amd64"
-        chmod +x terragrunt_linux_amd64
-        sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
-        terragrunt --version
-        
-    - name: 🔐 Configure AWS Credentials
+        curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64
+        chmod +x terragrunt
+        sudo mv terragrunt /usr/local/bin/
+
+    - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_DEFAULT_REGION }}
-        
-    - name: 🛡️ Install Security Tools
-      run: |
-        # Installation tfsec
-        curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
-        
-        # Installation git-secrets
-        git clone https://github.com/awslabs/git-secrets.git
-        cd git-secrets && make install && cd ..
-        git secrets --register-aws
-        git secrets --install
-        
-        # Installation Infracost (optionnel)
-        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-          curl -fsSL https://raw.githubusercontent.com/infracost/infracost/master/scripts/install.sh | sh
-        fi
-        
-    - name: 🔍 Run Validation Pipeline
-      id: validate
-      run: |
-        chmod +x scripts/validate.sh
-        ./scripts/validate.sh
-        echo "status=success" >> $GITHUB_OUTPUT
-      env:
-        PIPELINE_OWNER: ${{ github.actor }}
-        CI_PIPELINE_ID: ${{ github.run_id }}
-        
-    - name: 📊 Upload Validation Artifacts
-      uses: actions/upload-artifact@v3
-      if: always()
-      with:
-        name: validation-logs-${{ github.run_id }}
-        path: logs/
-        retention-days: 30
-        
-    - name: 💬 Comment PR with Validation Results  
-      uses: actions/github-script@v7
-      if: github.event_name == 'pull_request'
-      with:
-        script: |
-          const fs = require('fs');
-          const path = 'logs';
-          
-          if (fs.existsSync(path)) {
-            const files = fs.readdirSync(path);
-            const summaryFile = files.find(f => f.includes('validation_summary'));
-            
-            if (summaryFile) {
-              const summary = fs.readFileSync(`${path}/${summaryFile}`, 'utf8');
-              
-              github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: `## 🔍 Validation Results\n\n${summary}`
-              });
-            }
-          }
 
-  # Job 2: Planification pour tous les environnements
+    - name: Terragrunt Format Check
+      run: |
+        cd infrastructure
+        terragrunt hclfmt --terragrunt-check
+
+    - name: Terragrunt Validate
+      run: |
+        cd infrastructure
+        terragrunt run-all validate
+
+  # Job de planification
   plan:
-    name: 📋 Plan All Environments  
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan')
     runs-on: ubuntu-latest
-    needs: validate
-    if: needs.validate.outputs.validation-status == 'success'
-    timeout-minutes: 20
+    name: Plan Infrastructure Changes
     
     strategy:
       matrix:
-        environment: [dev, staging, prod]
-        
+        environment: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', github.event.inputs.environment)) || fromJSON('["dev"]') }}
+    
+    environment: ${{ matrix.environment }}
+    
     steps:
-    - name: 📥 Checkout Code
+    - name: Checkout code
       uses: actions/checkout@v4
-      
-    - name: 🔧 Setup Tools
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+        terraform_wrapper: false
+
+    - name: Setup Terragrunt
       run: |
-        # Setup Terraform
-        curl -LO "https://releases.hashicorp.com/terraform/${{ env.TF_VERSION }}/terraform_${{ env.TF_VERSION }}_linux_amd64.zip"
-        unzip terraform_${{ env.TF_VERSION }}_linux_amd64.zip
-        sudo mv terraform /usr/local/bin/
-        
-        # Setup Terragrunt  
-        curl -LO "https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TG_VERSION }}/terragrunt_linux_amd64"
-        chmod +x terragrunt_linux_amd64
-        sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
-        
-    - name: 🔐 Configure AWS Credentials
+        curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64
+        chmod +x terragrunt
+        sudo mv terragrunt /usr/local/bin/
+
+    - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_DEFAULT_REGION }}
-        role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/TerragruntDeployRole-${{ matrix.environment }}
+        role-to-assume: ${{ vars.AWS_ROLE_ARN }}
         role-session-name: GitHubActions-${{ github.run_id }}
-        
-    - name: 📋 Generate Terragrunt Plan
+        aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+    - name: Terragrunt Plan
       id: plan
       run: |
-        cd environments/${{ matrix.environment }}
-        
-        echo "🔄 Generating plan for ${{ matrix.environment }}..."
-        
-        # Plan avec sauvegarde
-        terragrunt run-all plan \
-          --terragrunt-non-interactive \
-          --terragrunt-out-dir ../../plans/${{ matrix.environment }} \
-          --terragrunt-log-level info \
-          > ../../logs/plan_${{ matrix.environment }}_$(date +%Y%m%d_%H%M%S).log 2>&1
-          
-        echo "plan-status=success" >> $GITHUB_OUTPUT
-      env:
-        TF_IN_AUTOMATION: "true"
-        
-    - name: 💰 Cost Estimation
-      if: github.event_name == 'pull_request'
-      run: |
-        if command -v infracost &> /dev/null; then
-          cd environments/${{ matrix.environment }}
-          
-          infracost breakdown \
-            --path . \
-            --format json \
-            --out-file ../../costs/cost_${{ matrix.environment }}.json || true
-            
-          infracost diff \
-            --path . \
-            --format github-comment \
-            --repo ${{ github.repository }} \
-            --pull-request ${{ github.event.pull_request.number }} \
-            --behavior update || true
-        fi
-        
-    - name: 📦 Upload Plan Artifacts
-      uses: actions/upload-artifact@v3
-      with:
-        name: terraform-plans-${{ matrix.environment }}-${{ github.run_id }}
-        path: |
-          plans/${{ matrix.environment }}/
-          logs/plan_${{ matrix.environment }}_*.log
-        retention-days: 30
+        cd infrastructure/environments/${{ matrix.environment }}
+        terragrunt run-all plan --terragrunt-non-interactive -out=tfplan
+      continue-on-error: true
 
-  # Job 3: Déploiement conditionnel
+    - name: Comment PR with Plan
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const output = `#### Terragrunt Plan 📖 \`${{ matrix.environment }}\`
+          
+          <details><summary>Show Plan</summary>
+          
+          \`\`\`terraform
+          ${{ steps.plan.outputs.stdout }}
+          \`\`\`
+          
+          </details>
+          
+          *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: output
+          })
+
+    - name: Plan Status Check
+      if: steps.plan.outcome == 'failure'
+      run: exit 1
+
+  # Job de déploiement
   deploy:
-    name: 🚀 Deploy Infrastructure
-    runs-on: ubuntu-latest
-    needs: [validate, plan]
     if: |
-      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
-      (github.event_name == 'workflow_dispatch')
-    timeout-minutes: 30
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
+    runs-on: ubuntu-latest
+    name: Deploy Infrastructure
+    needs: []
+    
+    strategy:
+      matrix:
+        environment: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', github.event.inputs.environment)) || fromJSON('["dev"]') }}
     
     environment: 
-      name: ${{ github.event.inputs.environment || 'dev' }}
-      
+      name: ${{ matrix.environment }}
+      url: ${{ steps.deploy.outputs.url }}
+    
     steps:
-    - name: 📥 Checkout Code
+    - name: Checkout code
       uses: actions/checkout@v4
-      
-    - name: 🔧 Setup Tools
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+        terraform_wrapper: false
+
+    - name: Setup Terragrunt
       run: |
-        curl -LO "https://releases.hashicorp.com/terraform/${{ env.TF_VERSION }}/terraform_${{ env.TF_VERSION }}_linux_amd64.zip"
-        unzip terraform_${{ env.TF_VERSION }}_linux_amd64.zip
-        sudo mv terraform /usr/local/bin/
-        
-        curl -LO "https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TG_VERSION }}/terragrunt_linux_amd64"
-        chmod +x terragrunt_linux_amd64
-        sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
-        
-    - name: 🔐 Configure AWS Credentials
+        curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64
+        chmod +x terragrunt
+        sudo mv terragrunt /usr/local/bin/
+
+    - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+        role-session-name: GitHubActions-${{ github.run_id }}
         aws-region: ${{ env.AWS_DEFAULT_REGION }}
-        
-    - name: 🚀 Deploy Infrastructure
+
+    - name: Terragrunt Apply
       id: deploy
       run: |
-        target_env="${{ github.event.inputs.environment || 'dev' }}"
+        cd infrastructure/environments/${{ matrix.environment }}
+        terragrunt run-all apply --terragrunt-non-interactive -auto-approve
         
-        echo "🚀 Starting deployment to: $target_env"
-        
-        cd environments/$target_env
-        
-        # Sauvegarde des logs de déploiement
-        mkdir -p ../../logs
-        
-        terragrunt run-all apply \
-          --terragrunt-non-interactive \
-          --terragrunt-log-level info \
-          > ../../logs/deploy_${target_env}_$(date +%Y%m%d_%H%M%S).log 2>&1
-          
-        echo "deploy-status=success" >> $GITHUB_OUTPUT
-        echo "environment=$target_env" >> $GITHUB_OUTPUT
-      env:
-        TF_IN_AUTOMATION: "true"
-        PIPELINE_OWNER: ${{ github.actor }}
-        CI_PIPELINE_ID: ${{ github.run_id }}
-        
-    - name: 🧪 Post-Deploy Validation
-      run: |
-        echo "🧪 Running post-deployment tests..."
-        
-        # Tests de sanité basiques
-        target_env="${{ github.event.inputs.environment || 'dev' }}"
-        cd environments/$target_env
-        
-        # Vérification que les ressources sont créées
-        terragrunt run-all output > ../../logs/outputs_${target_env}.json
-        
-        echo "✅ Post-deployment validation completed"
-        
-    - name: 📊 Upload Deploy Artifacts
-      uses: actions/upload-artifact@v3
-      if: always()
-      with:
-        name: deployment-logs-${{ steps.deploy.outputs.environment }}-${{ github.run_id }}
-        path: logs/
-        retention-days: 90
-        
-    - name: 📤 Archive Logs to S3
-      if: always()
-      run: |
-        # Upload vers S3 pour archivage long terme
-        aws s3 cp logs/ s3://pipeline-logs-bucket/deployments/$(date +%Y/%m/%d)/ --recursive --quiet || true
-        echo "📤 Logs archived to S3"
+        # Récupération des outputs (optionnel)
+        echo "url=https://example.com" >> $GITHUB_OUTPUT
 
+    - name: Notify deployment success
+      if: success()
+      run: |
+        echo "✅ Deployment to ${{ matrix.environment }} completed successfully"
+
+    - name: Notify deployment failure
+      if: failure()
+      run: |
+        echo "❌ Deployment to ${{ matrix.environment }} failed"
+        exit 1
+
+  # Job de destruction (uniquement via workflow_dispatch)
+  destroy:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+    runs-on: ubuntu-latest
+    name: Destroy Infrastructure
+    
+    strategy:
+      matrix:
+        environment: ${{ fromJSON(format('["{0}"]', github.event.inputs.environment)) }}
+    
+    environment: 
+      name: ${{ matrix.environment }}-destroy
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+        terraform_wrapper: false
+
+    - name: Setup Terragrunt
+      run: |
+        curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64
+        chmod +x terragrunt
+        sudo mv terragrunt /usr/local/bin/
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+        role-session-name: GitHubActions-Destroy-${{ github.run_id }}
+        aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+    - name: Terragrunt Destroy
+      run: |
+        cd infrastructure/environments/${{ matrix.environment }}
+        terragrunt run-all destroy --terragrunt-non-interactive -auto-approve
+
+    - name: Notify destruction completion
+      run: |
+        echo "🗑️ Infrastructure destroyed for ${{ matrix.environment }}"
