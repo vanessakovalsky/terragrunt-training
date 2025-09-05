@@ -20,7 +20,7 @@ locals {
 }
 
 inputs = {
-  name = "hooks-exercise-vpc"
+  name = "hooks-exercise-vpc-vanessa"
   cidr = local.vpc_cidr
   
   azs             = ["us-east-2a", "us-east-2b", "us-east-2c"]
@@ -33,6 +33,6 @@ inputs = {
   enable_dns_support = true
   
   tags = {
-    Name = "hooks-exercise-vpc"
+    Name = "hooks-exercise-vpc-vanessa"
   }
 }
