@@ -11,8 +11,8 @@ dependency "vpc" {
   }
 }
 
-dependency "security_groups" {
-  config_path = "../security-groups"
+dependency "security_groups_database" {
+  config_path = "../security-groups-database"
   mock_outputs = {
     database_security_group_id = "sg-fake"
   }
@@ -29,7 +29,7 @@ terraform {
     commands = ["plan", "apply"]
     execute = [
       "aws", "ec2", "describe-security-groups",
-      "--group-ids", "${dependency.security_groups.outputs.database_security_group_id}",
+      "--group-ids", "${dependency.security_groups_database.outputs.security_group_id}",
       "--query", "SecurityGroups[0].GroupId",
       "--output", "text"
     ]
@@ -43,6 +43,7 @@ terraform {
   error_hook "cleanup_on_error" {
     commands = ["apply"]
     execute = ["echo", "❌ RDS deployment failed. Check AWS console for detailed error information."]
+    on_errors = ["echo", "❌ RDS deployment failed. Check AWS console for detailed error information."]
   }
 }
 
@@ -66,7 +67,7 @@ inputs = {
   
   multi_az               = false
   db_subnet_group_name   = null  # Sera créé automatiquement
-  vpc_security_group_ids = [dependency.security_groups.outputs.database_security_group_id]
+  vpc_security_group_ids = [dependency.security_groups_database.outputs.security_group_id]
   subnet_ids            = dependency.vpc.outputs.private_subnets
   
   backup_retention_period = 7

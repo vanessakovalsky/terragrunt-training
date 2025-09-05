@@ -26,20 +26,6 @@ VPC (10.0.0.0/16)
 ```
 
 
-### Structure des dossiers
-```
-exercice1/
-├── terragrunt.hcl                 # Configuration root
-├── vpc/
-│   └── terragrunt.hcl
-├── security-groups/
-│   └── terragrunt.hcl
-├── database/
-│   └── terragrunt.hcl
-└── web-servers/
-    └── terragrunt.hcl
-```
-
 ## Préparation
 
 * Récupérer le contenu du dossier fichier-base/hooks (git clone ou git pull si vous aviez déjà cloner avant son ajout)

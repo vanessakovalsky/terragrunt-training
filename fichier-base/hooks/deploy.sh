@@ -6,7 +6,7 @@ echo "🚀 Starting Terragrunt Hooks Exercise Deployment"
 echo "=================================================="
 
 # Variables
-MODULES=("vpc" "security-groups" "database" "web-servers")
+MODULES=("vpc" "security-groups" "security-groups-database" "database" "web-servers")
 ROOT_DIR="environment/dev"
 S3_BUCKET="vanessa-state-bucket"  # À adapter
 
