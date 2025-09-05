@@ -1,0 +1,295 @@
+# .github/workflows/terragrunt-pipeline.yml
+name: 🚀 Secure Terragrunt Pipeline
+
+on:
+  push:
+    branches: [ main, develop, 'feature/*' ]
+  pull_request:
+    branches: [ main, develop ]
+  
+  # Déploiement manuel pour prod
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - staging
+        - prod
+      
+      force_deploy:
+        description: 'Force deployment (skip safety checks)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  TF_VERSION: '1.6.0'
+  TG_VERSION: '0.53.0'
+  AWS_DEFAULT_REGION: 'eu-west-1'
+
+jobs:
+  # Job 1: Validation complète
+  validate:
+    name: 🔍 Validate & Security Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    outputs:
+      validation-status: ${{ steps.validate.outputs.status }}
+      
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Pour git-secrets
+        
+    - name: 🔧 Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+        
+    - name: 🔧 Setup Terragrunt
+      run: |
+        curl -LO "https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TG_VERSION }}/terragrunt_linux_amd64"
+        chmod +x terragrunt_linux_amd64
+        sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
+        terragrunt --version
+        
+    - name: 🔐 Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_DEFAULT_REGION }}
+        
+    - name: 🛡️ Install Security Tools
+      run: |
+        # Installation tfsec
+        curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+        
+        # Installation git-secrets
+        git clone https://github.com/awslabs/git-secrets.git
+        cd git-secrets && make install && cd ..
+        git secrets --register-aws
+        git secrets --install
+        
+        # Installation Infracost (optionnel)
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          curl -fsSL https://raw.githubusercontent.com/infracost/infracost/master/scripts/install.sh | sh
+        fi
+        
+    - name: 🔍 Run Validation Pipeline
+      id: validate
+      run: |
+        chmod +x scripts/validate.sh
+        ./scripts/validate.sh
+        echo "status=success" >> $GITHUB_OUTPUT
+      env:
+        PIPELINE_OWNER: ${{ github.actor }}
+        CI_PIPELINE_ID: ${{ github.run_id }}
+        
+    - name: 📊 Upload Validation Artifacts
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: validation-logs-${{ github.run_id }}
+        path: logs/
+        retention-days: 30
+        
+    - name: 💬 Comment PR with Validation Results  
+      uses: actions/github-script@v7
+      if: github.event_name == 'pull_request'
+      with:
+        script: |
+          const fs = require('fs');
+          const path = 'logs';
+          
+          if (fs.existsSync(path)) {
+            const files = fs.readdirSync(path);
+            const summaryFile = files.find(f => f.includes('validation_summary'));
+            
+            if (summaryFile) {
+              const summary = fs.readFileSync(`${path}/${summaryFile}`, 'utf8');
+              
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `## 🔍 Validation Results\n\n${summary}`
+              });
+            }
+          }
+
+  # Job 2: Planification pour tous les environnements
+  plan:
+    name: 📋 Plan All Environments  
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.validation-status == 'success'
+    timeout-minutes: 20
+    
+    strategy:
+      matrix:
+        environment: [dev, staging, prod]
+        
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: 🔧 Setup Tools
+      run: |
+        # Setup Terraform
+        curl -LO "https://releases.hashicorp.com/terraform/${{ env.TF_VERSION }}/terraform_${{ env.TF_VERSION }}_linux_amd64.zip"
+        unzip terraform_${{ env.TF_VERSION }}_linux_amd64.zip
+        sudo mv terraform /usr/local/bin/
+        
+        # Setup Terragrunt  
+        curl -LO "https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TG_VERSION }}/terragrunt_linux_amd64"
+        chmod +x terragrunt_linux_amd64
+        sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
+        
+    - name: 🔐 Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_DEFAULT_REGION }}
+        role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/TerragruntDeployRole-${{ matrix.environment }}
+        role-session-name: GitHubActions-${{ github.run_id }}
+        
+    - name: 📋 Generate Terragrunt Plan
+      id: plan
+      run: |
+        cd environments/${{ matrix.environment }}
+        
+        echo "🔄 Generating plan for ${{ matrix.environment }}..."
+        
+        # Plan avec sauvegarde
+        terragrunt run-all plan \
+          --terragrunt-non-interactive \
+          --terragrunt-out-dir ../../plans/${{ matrix.environment }} \
+          --terragrunt-log-level info \
+          > ../../logs/plan_${{ matrix.environment }}_$(date +%Y%m%d_%H%M%S).log 2>&1
+          
+        echo "plan-status=success" >> $GITHUB_OUTPUT
+      env:
+        TF_IN_AUTOMATION: "true"
+        
+    - name: 💰 Cost Estimation
+      if: github.event_name == 'pull_request'
+      run: |
+        if command -v infracost &> /dev/null; then
+          cd environments/${{ matrix.environment }}
+          
+          infracost breakdown \
+            --path . \
+            --format json \
+            --out-file ../../costs/cost_${{ matrix.environment }}.json || true
+            
+          infracost diff \
+            --path . \
+            --format github-comment \
+            --repo ${{ github.repository }} \
+            --pull-request ${{ github.event.pull_request.number }} \
+            --behavior update || true
+        fi
+        
+    - name: 📦 Upload Plan Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: terraform-plans-${{ matrix.environment }}-${{ github.run_id }}
+        path: |
+          plans/${{ matrix.environment }}/
+          logs/plan_${{ matrix.environment }}_*.log
+        retention-days: 30
+
+  # Job 3: Déploiement conditionnel
+  deploy:
+    name: 🚀 Deploy Infrastructure
+    runs-on: ubuntu-latest
+    needs: [validate, plan]
+    if: |
+      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+      (github.event_name == 'workflow_dispatch')
+    timeout-minutes: 30
+    
+    environment: 
+      name: ${{ github.event.inputs.environment || 'dev' }}
+      
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: 🔧 Setup Tools
+      run: |
+        curl -LO "https://releases.hashicorp.com/terraform/${{ env.TF_VERSION }}/terraform_${{ env.TF_VERSION }}_linux_amd64.zip"
+        unzip terraform_${{ env.TF_VERSION }}_linux_amd64.zip
+        sudo mv terraform /usr/local/bin/
+        
+        curl -LO "https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TG_VERSION }}/terragrunt_linux_amd64"
+        chmod +x terragrunt_linux_amd64
+        sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
+        
+    - name: 🔐 Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_DEFAULT_REGION }}
+        
+    - name: 🚀 Deploy Infrastructure
+      id: deploy
+      run: |
+        target_env="${{ github.event.inputs.environment || 'dev' }}"
+        
+        echo "🚀 Starting deployment to: $target_env"
+        
+        cd environments/$target_env
+        
+        # Sauvegarde des logs de déploiement
+        mkdir -p ../../logs
+        
+        terragrunt run-all apply \
+          --terragrunt-non-interactive \
+          --terragrunt-log-level info \
+          > ../../logs/deploy_${target_env}_$(date +%Y%m%d_%H%M%S).log 2>&1
+          
+        echo "deploy-status=success" >> $GITHUB_OUTPUT
+        echo "environment=$target_env" >> $GITHUB_OUTPUT
+      env:
+        TF_IN_AUTOMATION: "true"
+        PIPELINE_OWNER: ${{ github.actor }}
+        CI_PIPELINE_ID: ${{ github.run_id }}
+        
+    - name: 🧪 Post-Deploy Validation
+      run: |
+        echo "🧪 Running post-deployment tests..."
+        
+        # Tests de sanité basiques
+        target_env="${{ github.event.inputs.environment || 'dev' }}"
+        cd environments/$target_env
+        
+        # Vérification que les ressources sont créées
+        terragrunt run-all output > ../../logs/outputs_${target_env}.json
+        
+        echo "✅ Post-deployment validation completed"
+        
+    - name: 📊 Upload Deploy Artifacts
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: deployment-logs-${{ steps.deploy.outputs.environment }}-${{ github.run_id }}
+        path: logs/
+        retention-days: 90
+        
+    - name: 📤 Archive Logs to S3
+      if: always()
+      run: |
+        # Upload vers S3 pour archivage long terme
+        aws s3 cp logs/ s3://pipeline-logs-bucket/deployments/$(date +%Y/%m/%d)/ --recursive --quiet || true
+        echo "📤 Logs archived to S3"
+

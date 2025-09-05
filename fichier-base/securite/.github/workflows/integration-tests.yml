@@ -1,0 +1,137 @@
+# .github/workflows/integration-tests.yml
+name: 🧪 Integration Tests
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Tests quotidiens à 2h
+  workflow_dispatch:
+    inputs:
+      test_environment:
+        description: 'Environment to test'
+        required: true
+        default: 'dev'
+        type: choice
+        options: [dev, staging, prod]
+
+env:
+  AWS_DEFAULT_REGION: 'eu-west-1'
+
+jobs:
+  integration-tests:
+    name: 🧪 Run Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    
+    strategy:
+      matrix:
+        test-suite: [connectivity, security, performance, compliance]
+        environment: ${{ fromJSON('["dev", "staging"]') }}  # Pas de tests auto sur prod
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: 🔐 Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_DEFAULT_REGION }}
+        
+    - name: 🧪 Run Test Suite
+      run: |
+        case "${{ matrix.test-suite }}" in
+          connectivity)
+            echo "🌐 Testing infrastructure connectivity..."
+            cd environments/${{ matrix.environment }}
+            
+            # Test VPC connectivity
+            vpc_id=$(terragrunt output -raw vpc_id 2>/dev/null || echo "")
+            if [[ -n "$vpc_id" ]]; then
+              aws ec2 describe-vpcs --vpc-ids "$vpc_id" --query 'Vpcs[0].State' --output text
+              echo "✅ VPC connectivity test passed"
+            else
+              echo "❌ VPC not found"
+              exit 1
+            fi
+            
+            # Test web server connectivity
+            if public_ip=$(terragrunt output -raw web_server_ip 2>/dev/null); then
+              if curl -s --max-time 10 "http://$public_ip" > /dev/null; then
+                echo "✅ Web server connectivity test passed"
+              else
+                echo "❌ Web server not accessible"
+                exit 1
+              fi
+            fi
+            ;;
+            
+          security)
+            echo "🔒 Running security tests..."
+            
+            # Vérification des security groups
+            cd environments/${{ matrix.environment }}
+            sg_ids=$(aws ec2 describe-security-groups --query 'SecurityGroups[?VpcId!=null].GroupId' --output text)
+            
+            for sg_id in $sg_ids; do
+              # Vérifier qu'aucun SG n'autorise 0.0.0.0/0 sur tous les ports
+              open_rules=$(aws ec2 describe-security-groups --group-ids "$sg_id" \
+                --query 'SecurityGroups[0].IpPermissions[?IpRanges[?CidrIp==`0.0.0.0/0`] && (FromPort==null || FromPort==`0`)]' \
+                --output text)
+              
+              if [[ -n "$open_rules" ]]; then
+                echo "❌ Security group $sg_id has overly permissive rules"
+                exit 1
+              fi
+            done
+            
+            echo "✅ Security tests passed"
+            ;;
+            
+          performance)
+            echo "⚡ Running performance tests..."
+            
+            start_time=$(date +%s)
+            cd environments/${{ matrix.environment }}
+            
+            # Test de plan rapide
+            terragrunt run-all plan --terragrunt-non-interactive > /dev/null
+            
+            end_time=$(date +%s)
+            duration=$((end_time - start_time))
+            
+            # Le plan ne devrait pas prendre plus de 5 minutes
+            if [[ $duration -gt 300 ]]; then
+              echo "❌ Planning took too long: ${duration}s"
+              exit 1
+            fi
+            
+            echo "✅ Performance tests passed (${duration}s)"
+            ;;
+            
+          compliance)
+            echo "📋 Running compliance tests..."
+            
+            # Vérification des tags obligatoires
+            resources=$(aws resourcegroupstaggingapi get-resources \
+              --region ${{ env.AWS_DEFAULT_REGION }} \
+              --query 'ResourceTagMappingList[?!Tags[?Key==`Environment`]]' \
+              --output text)
+            
+            if [[ -n "$resources" ]]; then
+              echo "❌ Found resources without Environment tag"
+              echo "$resources"
+              exit 1
+            fi
+            
+            echo "✅ Compliance tests passed"
+            ;;
+        esac
+        
+    - name: 📊 Upload Test Results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: integration-test-results-${{ matrix.test-suite }}-${{ matrix.environment }}
+        path: test-results/
+        retention-days: 7
